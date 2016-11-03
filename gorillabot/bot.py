@@ -200,7 +200,35 @@ class Bot(object):
                 self.get_admin(op)
                 return True
         return False
-
+    def checkThrottling(self,message,timing):
+        """Check if the Channel has Crossed Throttling limit set in the configuration, if so then
+        silently drop the messages"""
+        sent_to = message.split(' ')[1]
+        if ('#' in sent_to):
+             try:
+                 for chan in self.configuration["chans"]:
+                     if (sent_to == chan):
+                         Throttling = self.configuration["chans"][chan]["Throttling"]
+                         self.configuration["chans"][chan]["Throttling"] = int(Throttling) - 1
+                         #print(self.configuration["chans"][chan]["Throttling"])
+                         if Throttling > 0:
+                               return True 
+                         else:
+                               self.configuration["chans"][chan]["Throttling"] = 0
+                               try:
+                                    if(time() - float(self.configuration["chans"][chan]["Timestamp"])) < 60:
+                                         return False
+                                    else:
+                                         self.configuration["chans"][chan]["Timestamp"] = timing
+                                         return True                              
+                               except:
+                                    self.configuration["chans"][chan]["Timestamp"] = time
+                               return False #The Limit Has Been Exceeded, Do Not Send
+             except:
+                 return True #No Throttling Has Been Set for Channel
+        else:
+             return True
+        
     def join(self, chans=None):
         """Join the given channel, list of channels, or if no channel is specified, join any
         channels that exist in the config but are not already joined."""
@@ -288,18 +316,22 @@ class Bot(object):
 
     def send(self, message, hide=False):
         """Send message to the server."""
-        if (time() - self.last_message_sent) < 1:
-            sleep(1)
-        try:
-            message = re.sub(r'(\n|\r)', "", message)
-            self.socket.sendall(bytes((message[:510] + "\r\n"), "utf-8"))
-        except socket.error:
-            self.shutdown.set()
-            self.logger.error("Message '" + message + "' failed to send. Shutting down.")
+        if (self.checkThrottling(message,self.last_message_sent)==False):
+            self.logger.error("Message '" + message + "' failed to send due to Throttling Limits.")
         else:
-            if not hide:
-                self.logger.debug("Sent: " + message)
-            self.last_message_sent = time()
+            if (time() - self.last_message_sent) < 1:
+                sleep(1)
+            try:
+                message = re.sub(r'(\n|\r)', "", message)
+                self.socket.sendall(bytes((message[:510] + "\r\n"), "utf-8"))
+            except socket.error:
+                self.shutdown.set()
+                self.logger.error("Message '" + message + "' failed to send. Shutting down.")
+            else:
+                if not hide:
+                   self.logger.debug("Sent: " + message)
+                self.last_message_sent = time()
+            #self.checkThrottling(message)
 
     def setup_logging(self):
         """Set up logging to a logfile and the console."""
